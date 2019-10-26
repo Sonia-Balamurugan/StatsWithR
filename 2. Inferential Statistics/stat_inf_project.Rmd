@@ -1,0 +1,209 @@
+---
+title: "Statistical inference with the GSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(ggmosaic)
+```
+
+### Load data
+
+```{r load-data}
+load("gss.Rdata")
+```
+
+
+
+* * *
+
+## Part 1: Data
+### Introduction to GSS Data
+According to the GSS website,  
+"The GSS gathers data on contemporary American society in order to monitor and explain trends and constants in attitudes, behaviors, and attributes.  Hundreds of trends have been tracked since 1972. In addition, since the GSS adopted questions from earlier surveys, trends can be followed for up to 80 years.  
+  
+The GSS contains a standard core of demographic, behavioral, and attitudinal questions, plus topics of special interest. Among the topics covered are civil liberties, crime and violence, intergroup tolerance, morality, national spending priorities, psychological well-being, social mobility, and stress and traumatic events.  
+  
+Altogether the GSS is the single best source for sociological and attitudinal trend data covering the United States. It allows researchers to examine the structure and functioning of society in general as well as the role played by relevant subgroups and to compare the United States to other nations."   
+   
+### Generalizability and Causality  
+From the codebook on the GSS website, we see it the survey respondents was indeed obtained after random sampling. Hence, any conclusions made from the data can be generalized to the US population.   
+   
+*Note*:  It's possible that the data has a few biases. Since 1972, the GSS has undergone several changes in methodologies which might introduce bias. Non-response bias is also likely since the face-to-face surveys take an hour and busy working residents might not have chosen to respond.   
+  
+On the other hand, no causal relationships can be inferred as the GSS is an observational study. It was not an experiment and hence no random assigment was used.  
+
+
+* * *
+
+## Part 2: Research question
+Is there a relationship between a respondent's confidence in organized religion and their opinion on legality of abortion for any reason?
+
+The topic of abortion and any debates related to it has a tendency to go from a scientic point of view to religious points of view untethered to science or observable reality really quickly. It would seem that people who are religious and believe in their religion's righteousness might have their opinions influenced by their religious views as well. It would be interesting to see if this association is indeed verifiable.   
+  
+We would also look at how the sex of the respondent affects this relationship as well. This is interesting since women have an actual stake in the abortion debate due to the much higher reproductive costs imposed on them, as opposed to men who are unaffected by abortion laws.  
+  
+Hence, the following variables are considered in the analysis:  
+1. conclerg - confidence in organized religion  
+2. abany - abortion if woman wants for any reason  
+3. sex - respondent's sex  
+  
+*Note*: For the purpose of this project, we will only look at the last five years of data available, i.e., 2008 - 2012, in order to rule out any changes in opinion that might have occurred over time.  
+
+
+* * *
+
+## Part 3: Exploratory data analysis
+  
+Let's extract the data we'll need and save it in a new dataframe.  
+  
+```{r extract-data}
+#Extract necessary data and save in new dataframe
+abortion <- gss %>% filter(year %in% c(2008, 2009, 2010, 2011, 2012)) %>% 
+  select(conclerg, abany, sex) %>% na.omit()
+```
+  
+Let's now calculate some summary statistics.  
+  
+```{r summary}
+#Summarise data
+abortion %>% summary()
+```
+  
+Although this is a good summary of the data we have, it doesn't do much to answer our question of the relationship between confidence in organised religion and opinion on abortion rights. Let's create a table of proportions to see that data.  
+  
+
+```{r proportions}
+#Create a table of proportions 
+abortion_table <- table(abortion$conclerg, abortion$abany)
+abortion_table
+prop.table(abortion_table)
+```
+  
+No we see that the proportion of Yes'es and No'es to abortion for any reason are different for each category of confidence in religion. We also wanted to differentiate the proportions by sex of the respondent. So let's split up this table into two different proportion tables - one for each sex.  
+  
+```{r prop-sex}
+#Create a table of proportions for male respondents
+male <- abortion %>% filter(sex == "Male") %>% select(conclerg, abany)
+male_table <- table(male$conclerg, male$abany)
+prop.table(male_table)
+
+#Create a table of proportions for female respondents
+female <- abortion %>% filter(sex == "Female") %>% select(conclerg, abany)
+female_table <- table(female$conclerg, female$abany)
+prop.table(female_table)
+```
+  
+The proportions do seem slightly different for male and female respondents. Let's draw a mosaic plot to get a visual sense of this difference.
+  
+```{r plot-by-sex}
+ggplot(abortion) + geom_mosaic(aes(x = product(conclerg), fill = abany)) + facet_wrap(~sex) + 
+  labs(title = "Relationship between Confidence in Religion and Opinion on Abortion Rights",
+       x = "Confidence in Organized Religion", 
+       y = "Agree with the right to abortion for any reason") + 
+  guides(fill=guide_legend(title = "Abortion for any reason"))
+```
+  
+We see that the trend of yes and no responses for each category of confidence in religion remain the same although the values look different. Let's create another mosaic plot with the male and female respondents closer in each confidence in religion category in order to better compare the difference in responses of the two sexes.  
+  
+```{r plot-by-confidence}
+ggplot(abortion) + geom_mosaic(aes(x = product(sex), fill = abany)) + facet_wrap(~conclerg) + 
+  labs(title = "Relationship between, sex, Confidence in Religion and Opinion on Abortion Rights",
+       x = "Sex", y = "Agree with the right to abortion for any reason") + 
+  guides(fill=guide_legend(title = "Abortion for any reason"))   
+```
+  
+This is interesting. We see that more women than men believe abortion for any reason is okay if they have a high degree of confidence and low confidence in organised religion. However, this trend is reversed for people with a little confidence in religion. We also see from the previous plot that regardless of sex, there seems to be a relationship between confidence in religion and opinion on abortion rights. 
+
+  
+
+
+* * *
+
+## Part 4: Inference
+  
+Now that we have a better idea of how the data works, we can perform inferential statistics. The section below is organised as follows:  
+* State hypotheses  
+* Method(s) to be used and why and how  
+* Check conditions  
+* Perform inference  
+* Interpret results  
+  
+Note: In this section, we'll carry out three different tests - one for each sex and the third for all the respondents.  
+
+### Hypothesis  
+**Null Hypothesis, H~0~**: There is no relationship between the respondent's opinion on abortion for any reason and confidence in organised religion, i.e., the variables conclerg and abany are *independent*.  
+  
+**Alternative Hypothesis, H~A~**: The respondent's opinion on abortion for any reason and confidence in organised religion are *dependent* variables.  
+  
+### Methodology  
+Since both variables - opinion on abortion for any reason and confidence in organised religion - are categorical variables, inference can be done using **chi-square test of independence**. We will be using this test since we have 2 categorical variables (conclerg and abany) and the variable conclerg has more than 2 levels as we see from the structure of the three dataframes in the code chunk below.  
+  
+```{r structure}
+abortion <- abortion %>% select(conclerg, abany)
+str(abortion)
+str(male)
+str(female)
+```
+  
+The chi-square test works by calculating the expected values in each cell under the assumption that the null hypothesis is true. The expected  value in each cell is computed as:  
+$$Expected\text{ }value\text{ }of\text{ }cell = \frac{(Row \text{ }total)\times(Column \text{ }total)}{Table \text{ } total} $$
+  
+The chi-square statistic is then calculated
+$$\chi^2=\sum_{i=1}^{k}\frac{(Observed-Expected)^2}{Expected}$$
+with the degree of freedom
+$$df = (Number\text{ }of\text{ }rows-1)\times(Number\text{ }of\text{ }columns-1)$$
+  
+### Conditions  
+The chi-square test of independence requires two conditions.  
+  
+**1. Independence**:  
+The GSS data were collected using random sampling. Each respondent can only fall under one cell in the table of the 2 variables of interest. The sample size is also less than 10% of the population. Hence, we can conclude that the sampled observations are independent and this condition is satisfied.  
+  
+**2. Sample Size**:  
+The code chunk below checks the count in each cell entry of each table. Since each of them have more than 5 cases, this condition is satisfied.  
+  
+```{r female-table}
+abortion_table
+male_table
+female_table
+```
+  
+### Inference  
+We'll now compute the chi-square test of independence. First for the combined data,
+```{r test-total}
+test_total <- chisq.test(abortion$conclerg, abortion$abany)
+test_total
+```
+  
+For only female respondents:  
+```{r test-female}
+test_female <- chisq.test(female$conclerg, female$abany)
+test_female
+```
+  
+For only male respondents:
+```{r test-male}
+test_male <- chisq.test(male$conclerg, male$abany)
+test_male
+```
+In all three tests above, we see that the p-values are really low and the chi-squared values are high.
+  
+We can only do a hypothesis test and no confidence interval since the chi-square test does not allow for confidence intervals. Hence, we can't include that in this analysis.
+  
+### Interpretation  
+In all three cases - for male respondents, for female respondents and the combination, the p-values are lower than the significance level (0.05). Hence, we can conclude that there is sufficient evidence to reject the null hypothesis at 5% significance level. This indicates that there is evidence that there is an association between the respondent's opinion on abortion for any reason and their confidence in organised religion.
+
+However, this does not mean that confidence in organised religion causes a specific opinion on abortion rights. Only that they are dependent and associated with each other regardless of the sex of the respondent.
+
