@@ -1,0 +1,290 @@
+---
+title: "Exploring the BRFSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+```
+
+### Load data
+
+Make sure your data and R Markdown files are in the same directory. When loaded
+your data file will be called `brfss2013`. Delete this note when before you submit 
+your work. 
+
+```{r load-data}
+load("brfss2013.RData")
+```
+
+
+
+* * *
+
+## Part 1: Data
+The BRFSS data is collected through telephone and cell-phone interviews.  
+THis poses a few issues:  
+  
+  1. Although the candidates to be contacted for the interviews are randomly selected, there is no guarantee that all candidates are reached. This risk of *non-response* could introduce bias into the *randomly sampled (stratified sampling)* data. For instance, single-individual households with a busy adult holding multiple jobs are less likely to be represented in the data.  
+  
+  2. Since only telephone and cellphone interviews were conducted for data collection, individuals without phones are left unrepresented. Homeless individuals are most likely not represented as well.  
+  
+  3. Data collected are not directly observed or objectively measured but are *self-reported*. Hence, the data are subject to many sources of errors. Interviewees might not accurately recall the information being asked for if some time had passed. The wording of some questions might mean something different to the interviewees than intended.  
+  
+  4. Since the data is self-reported, the observations are part of an *observational* study and not an experiment.  
+
+The first two points suggest that the observations, and hence any conclusions drawn from them, can only be generalized to the population that has access to phones and is free enough to answer long calls at interview periods. Since the collected data are results of random sampling, self-reporting and hence observational, only *correlations* can be made. No causality can be determined as no random assignment was used.
+
+* * *
+
+## Part 2: Research questions
+
+**Research quesion 1:**  
+Is there an association between education and income? Can this relationship be explained (confounded) by sex?
+
+Variables: Education level, Income level, Sex
+
+We typically assume that higher education would lead to better jobs. Let's verify if that is indeed true. It would also be interesting to see if the relationship between income and education stays the same for the two sexes.
+  
+**Research quesion 2:**  
+Is there an association between consumption of sweetened drinks and diabetes occurrence? What about between soda and diabetes occurrence?  
+  
+VariableS: diabete3, ssbsugar, ssbfrut2  
+  
+It is common belief that diabetes is tied to excessive sugar consumption. We also know that artificially sweet drinks have proportionally a lot more sugar in them than other food items. Hence, we'll see if there's an association between the two. It would also be interesting to note the differences, if any, between soda and other sweetened drinks in the context of diabetes occurrence.
+  
+**Research quesion 3:**  
+Is duration of physical activity correlated with number of days that physical health was reported to be good (or not)?  
+  
+Variables: physhlth, padur1_, padur2_  
+  
+Exercise or physical activity is taken for granted as a huge factor that contributes to one's health. Let's test if the duration of physical activity has a significant association with physical health reported.  
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+**Research quesion 1:**  
+Since we are interested in the relationship between income level and education level, let's plot these two variables in a stacked bar graph.  
+
+```{r plot-edu-income}
+#Plot stacked columns for education level against income level
+brfss2013 %>% filter(!is.na(educa), !is.na(income2)) %>% 
+  ggplot(aes(educa)) + geom_bar(aes(fill = income2), position = "fill") + 
+  labs(title = "Incomes reported for each Education level", x = "Education Level", y="") + 
+  scale_fill_discrete(name = "Income Categories") + 
+  scale_x_discrete(labels = c("No school", "Elementary", "Some HS", "HS Grad", "Some college", "College Grad"))
+```
+
+The stacked column chart above clearly shows that the distribution of income does indeed change with education level, with college graduates earning the highest. We'd also like to look at the exact summary statistics in order to verify this relationship. Since we are dealing with two categorical variables, we can calculate marginal proportions of one (education) across the other (income).  
+
+```{r calc-proportions}
+#Calculate marginal proportion of each income category in each education level
+edu_inc <- brfss2013 %>% filter(!is.na(educa), !is.na(income2)) %>% select(educa, income2)
+tab_edu_inc <- table(edu_inc$educa, edu_inc$income2)
+prop_table <- prop.table(tab_edu_inc, margin = 1) %>% round(.,3)
+prop_table %>% kable() %>% kable_styling()
+```
+
+This table shows the marginal proportion of income levels for each education level. For example: 48.6% of college grads earn $75000 or more, whereas only 6.14% of people who never attended school earned $75000 or more. Since each education category has different proportions of earners of different income levels, there is a correlation between income and education level.  
+  
+  
+It is common knowledge that there is a wage gap between the sexes despite both sexes being equally represented in higher education. Hence we can split the data by sex and then compare the association observed between income and education level for the two sexes.  
+
+```{r compare-sex}
+#Plot Income and Education for Male respondents
+brfss2013 %>% filter(!is.na(educa), !is.na(income2), sex == "Male") %>% 
+  ggplot(aes(educa)) + geom_bar(aes(fill = income2), position = "fill") + 
+  labs(title = "Incomes reported for each Education level of Male respondents", 
+       x = "Education Level", y="") + scale_fill_discrete(name = "Income Categories") +
+  scale_x_discrete(labels = c("No school", "Elementary", "Some HS", "HS Grad", "Some college", "College Grad"))
+
+#Plot Income and Education for Female respondents
+brfss2013 %>% filter(!is.na(educa), !is.na(income2), sex == "Female") %>% 
+  ggplot(aes(educa)) + geom_bar(aes(fill = income2), position = "fill") + 
+  labs(title = "Incomes reported for each Education level of Female respondents", 
+       x = "Education Level", y="") + scale_fill_discrete(name = "Income Categories") +
+  scale_x_discrete(labels = c("No school", "Elementary", "Some HS", "HS Grad", "Some college", "College Grad"))
+```
+
+  
+Comparing the two plots above, we see that the income distribution for each education level category is  similar for the two sexes although more women seem to fall in the lower income categories than men with the same education. For instance, for the bars representing respondents that finished some high school, the area occupied by orange (earning less than $10k) is bigger for women than for men whereas the purples occupy a smaller area for women than for men. Let's verify this with the marginal proportion tables as well.  
+
+```{r compare-sex-proportions}
+#Marginal Proportion of income for each education level for Male respondents 
+male <- brfss2013 %>% filter(!is.na(educa), !is.na(income2), sex == "Male") %>% select(educa, income2)
+tab_male <- table(male$educa, male$income2)
+male_prop_table <- prop.table(tab_male, margin = 1) %>% round(.,3)
+male_prop_table %>% kable() %>% kable_styling()
+
+#Marginal Proportion of income for each education level for Female respondents
+female <- brfss2013 %>% filter(!is.na(educa), !is.na(income2), sex == "Female") %>% select(educa, income2)
+tab_female <- table(female$educa, female$income2)
+female_prop_table <- prop.table(tab_female, margin = 1) %>% round(.,3)
+female_prop_table %>% kable() %>% kable_styling()
+```
+  
+Indeed, the proportions also show that for the same education level, there are a lot more women in the lower income categories than men. This disparity is seen across the board to varying extents. We can conclude that although sex does influence income earnings given the same education, it does not completely explain the association between education and income. Hence, education is correlated with income with small levels of confounding by sex.
+  
+  
+**Research quesion 2:**  
+We are interested in the variables diabete3, ssbsugar, ssbfrut2. Let's extract these variables out of the whole dataset and save them for more processing. We'll also filter out the "NA" values of these variables.
+
+```{r extract-diabetes}
+#Filter NA values and select relevant columns
+diabetes <- brfss2013 %>% filter(!is.na(diabete3), !is.na(ssbsugar), !is.na(ssbfrut2)) %>% 
+  select(diabete3, ssbsugar, ssbfrut2)
+str(diabetes)
+```
+  
+We see that the data has been extracted correctly. Looking through the codebook, it can be seen that the range of the variables ssbsugar and ssbfrut2 is 0 - 399 but that they are coded such that 101 - 199 refers to times per day, 201-299 refers to times per week and 301-399 refers to times per month.  
+  
+In order to be analysed properly, the values of these two variable should be standardised to refer to the same unit. A quick google search on how to do this brings up this article: https://www.cdc.gov/brfss/data_documentation/pdf/BRFSS_SSB-UserGuide.pdf  
+  
+According to the article, the values can be standardised to refer to daily intake with the following formulae: 
+if 101<= ssbsugar <=199 then soda= ssbsugar -100;  
+if 201<= ssbsugar <=299 then soda=(ssbsugar -200)/7;  
+if 301<= ssbsugar <=399 then soda=(ssbsugar -300)/30;  
+if ssbsugar =888 then soda=0  
+Here, soda refers to daily intake of soda.
+
+As for consumption of sweet drinks, the conversion to daily intake is as follows:  
+if 101<= ssbfruit <=199 then fruitdr= ssbfruit -100;  
+if 201<= ssbfruit <=299 then fruitdr=(ssbfruit -200)/7;  
+if 301<= ssbfruit <=399 then fruitdr=(ssbfruit -300)/30;  
+if ssbfruit =888 then fruitdr=0;  
+Here, fruitdr refers to daily intake of sweet drinks (fruit drink/sweet tea/sports drink/energy drink).  
+
+```{r daily-intake}
+#Convert to daily intakes
+diabetes <- diabetes %>% mutate(sodadaily = ifelse(ssbsugar %in% 101:199, ssbsugar-100, 
+                                                   ifelse(ssbsugar %in% 201:299, (ssbsugar-200)/7, 
+                                                          ifelse(ssbsugar %in% 301:399, (ssbsugar-300)/30,
+                                                                 ifelse(ssbsugar == 888, 0,
+                                                                        ifelse(ssbsugar == 0, 0, "NA"))))))
+
+diabetes <- diabetes %>% mutate(sweetdaily = ifelse(ssbfrut2 %in% 101:199, ssbfrut2-100, 
+                                                    ifelse(ssbfrut2 %in% 201:299, (ssbfrut2-200)/7, 
+                                                           ifelse(ssbfrut2 %in% 301:399, (ssbfrut2-300)/30,
+                                                                  ifelse(ssbfrut2 == 888, 0,
+                                                                         ifelse(ssbfrut2 == 0, 0, "NA"))))))
+
+```
+  
+Let's check if the conversion has been done right.  
+
+```{r check-new-vars}
+#Check structure of variables
+str(diabetes$sodadaily)
+str(diabetes$sweetdaily)
+
+#Convert to numeric values
+diabetes$sodadaily <- as.numeric(diabetes$sodadaily)
+diabetes$sweetdaily <- as.numeric(diabetes$sweetdaily)
+
+#Check structure again
+str(diabetes$sweetdaily)
+str(diabetes$sodadaily)
+```
+  
+In the above chunk, we check the structure of the new variables sodadaily and sweetdaily, and notice that the they have the chr datatype. So these variables are converted to numeric datatype. We should also check if any new "NA" values were introduced during the conversion.  
+
+```{r check-for-na}
+#Check if any of the newly derived values are NA
+sum(is.na(diabetes$sodadaily))
+sum(is.na(diabetes$fruitdaily))
+```
+  
+No new "NA" values have been introduced. Hence, we are ready to start the actual analysis. Let's plot a boxplot of daily soda intake against diabetes occurrence to see their relationship. We'll also repeat the same for daily sweet drink intake.  
+
+```{r boxplot}
+#Plot diabetes occurrence versus daily soda intake
+ggplot(diabetes, aes(x=factor(diabete3), y=sodadaily)) + geom_boxplot() + 
+  labs(title="Daily Soda Intake and Diabetes Occurrence", x = "Diabetes occurrence", y = "Daily Soda intake")
+
+ggplot(diabetes, aes(x=factor(diabete3), y=sweetdaily)) + geom_boxplot() + 
+  labs(title="Daily Sweet Drink Intake and Diabetes Occurrence", x = "Diabetes occurrence", y = "Daily Sweet Drink intake")
+```
+  
+In both graphs, the boxplots seem squeezed at the 0 value and it's hard to tell any difference in distribution. Let's zoom into the range closer to 0 by setting upper limits on the y axis and ignoring the outliers.
+
+```{r boxplot-ylimits}
+ggplot(diabetes, aes(x=factor(diabete3), y=sodadaily)) + geom_boxplot() + ylim(0, 2) + 
+  labs(title="Daily Soda Intake and Diabetes Occurrence", x = "Diabetes occurrence", y = "Daily Soda intake")
+
+ggplot(diabetes, aes(x=factor(diabete3), y=sweetdaily)) + geom_boxplot() + ylim(0, 2) + 
+  labs(title="Daily Sweet Drink Intake and Diabetes Occurrence", x = "Diabetes occurrence", y = "Daily Sweet Drink intake")
+```
+  
+We see that for Soda intake, the median value of soda is actually the lowest  for people with Diabetes. People with diabetes also have the smallest range of soda intake as well.  
+  
+As for sweet drink intake, the median value is the same for all for cases. But again, people with diabetes have the smallest range of sweet drink intake.  
+  
+Let's calculate some summary statistics to make sure that this is indeed true.  
+```{r diabetes-stats}
+#Statistics for Daily Soda Intake grouped by Diabetes Occurrence
+soda <- diabetes %>% group_by(diabete3) %>% summarise(Mean = mean(sodadaily), Median = median(sodadaily), 
+                                              SD = sd(sodadaily), Variance = var(sodadaily), 
+                                              IQR = IQR(sodadaily), Minimum = min(sodadaily), 
+                                              Maximum = max(sodadaily))
+soda %>% rename(Diabetes_Soda = diabete3) %>% kable() %>% kable_styling()
+
+#Statistics for Daily Sweet Drink Intake grouped  by Diabetes Occurrence
+sweet <- diabetes %>% group_by(diabete3) %>% summarise(Mean = mean(sweetdaily), Median = median(sweetdaily), 
+                                              SD = sd(sweetdaily), Variance = var(sweetdaily), 
+                                              IQR = IQR(sweetdaily), Minimum = min(sweetdaily), 
+                                              Maximum = max(sweetdaily)) 
+sweet %>% rename(Diabetes_SweetDrink = diabete3) %>% kable() %>% kable_styling()
+```
+  
+From the statistics calculated, it is indeed seen that our conclusions from the plots were correct. The mean and median values of soda intake is lowest for people with diabetes than for other categories. It aso has the lowest variance.   
+  
+Similarly, the mean value for sweet drink intake is the lowest for people with diabetes whereas the median is the same for all categories.  
+  
+Since the statistics calculated are different for the different diabetes categories, it is likely that there is some correlation between soda intake and diabetes as well as between sweet drink intake and diabetes. However, the direction of the correlation seems to be counter-intuitive, i.e., we see that people with diabetes on average consumed less soda and sweet drinks than people without diabetes, in contrast to the initial assumption that people with diabetes would consume more. One possible explanation is that people with diabetes consume less sweet drinks and soda because they know that it would aggravate their condition, and hence it can be a reactive reduction in their consumption due to concern for health. On an additional note, it is also harder to guage the significance of the correlation given that the summary statistics for the different categories being quite close to one another.  
+  
+
+**Research quesion 3:**  
+
+We are only interested in the variables for time (in minutes) per week spent in physical activity 1 (padur1_) and in activity 2 (padur2_) as well as the number of days of not good health reported (physhlth). Hence, we will first create a new dataframe with only these variables and filter out the "NA" data.  
+
+```{r extract-activity}
+physical <- brfss2013 %>% select(padur1_, padur2_, physhlth) %>% 
+  filter(!is.na(padur1_), !is.na(padur2_), !is.na(physhlth))
+```
+  
+The original dataset has two different columns for the two physical activities. Since we are only interested in the total duration spent engaging in a physical activity and how it relates to reported physical health, we can combine these two columns into total time spent.  
+  
+```{r total-activity}
+#Combine duration of the two activities
+physical <- physical %>% mutate(total_activity = padur1_ + padur2_)
+```
+  
+We can now plot the total time spent per week on physical activities against the number of days per month reported health was not good.  
+
+```{r plot-physical}
+#Plot Activity against Health
+ggplot(physical, aes(x= total_activity, y = physhlth)) + geom_point() + geom_smooth() + 
+  labs(title = "Physical Activity and Physical Health", x = "Minutes of activity per week", 
+       y = "No. of days of physical ill-health")
+```
+  
+The blue line shows the trend. We can see that the number of days of lack of good health decrease between 0 - 100 minutes of physical activity per week but after that there doesn't seem to be a trend. Let's also find summary statistics to confirm this slight negative correlation.    
+
+```{r calc-correlation}
+#Calculate Correlation coefficient
+cor.test(x= physical$total_activity, y = physical$physhlth, method=c("pearson", "kendall", "spearman"))
+```
+  
+As seen, the calculated correlation coefficient is -0.0171 with a 95% confidence interval of (-0.021, -0.012). Since 0 is not in the 95% CI, we can say with 95% confidence that there is a slight negative correlation between no. of days of ill-health and physical activity. It should also be noted that the correlation coefficient only measures linear correlation. It's possible that a non-linear relationship might yield a correlation of higher significance.
