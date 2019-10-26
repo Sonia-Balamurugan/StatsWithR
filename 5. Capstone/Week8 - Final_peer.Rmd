@@ -1,0 +1,397 @@
+---
+title: "Peer Assessment II"
+output:
+  html_document: 
+    pandoc_args: [
+      "--number-sections",
+    ]
+---
+
+# Background
+
+*As a statistical consultant working for a real estate investment firm, your task is to develop a model to predict the selling price of a given home in Ames, Iowa. Your employer hopes to use this information to help assess whether the asking price of a house is higher or lower than the true value of the house. If the home is undervalued, it may be a good investment for the firm.*
+
+# Training Data and relevant packages
+
+*In order to better assess the quality of the model you will produce, the data have been randomly divided into three separate pieces: a training data set, a testing data set, and a validation data set. For now we will load the training data set, the others will be loaded and used later.*
+
+```{r load, message = FALSE}
+load("ames_train.Rdata")
+```
+
+*Use the code block below to load any necessary packages*
+
+```{r packages, message = FALSE}
+library(devtools)
+library(statsr)
+library(dplyr)
+library(BAS)
+library(MASS)
+library(ggplot2)
+library(kableExtra)
+```
+
+## Data Pre-processing  
+  
+First let us look at the structure of the data to check if all variables are correctly incorporated.  
+  
+```{r struct}
+str(ames_train)
+```
+  
+We see that all the variables have the correct data types except for PID and MS.SubClass. We will not be using PID in our analysis as it is the Parcel Identification Number and has nothing to do with the property itself. However Ms.SubClass should be a factor so we will change that first.  
+  
+```{r factor}
+# Data Type Change
+ames_train$MS.SubClass <- as.factor(ames_train$MS.SubClass)
+```
+
+# Analysis
+
+## Part 1 - Exploratory Data Analysis (EDA)
+
+*When you first get your data, it's very tempting to immediately begin fitting models and assessing how they perform.  However, before you begin modeling, it's absolutely essential to explore the structure of the data and the relationships between the variables in the data set.*
+
+*Do a detailed EDA of the ames_train data set, to learn about the structure of the data and the relationships between the variables in the data set (refer to Introduction to Probability and Data, Week 2, for a reminder about EDA if needed). Your EDA should involve creating and reviewing many plots/graphs and considering the patterns and relationships you see.* 
+
+*After you have explored completely, submit the three graphs/plots that you found most informative during your EDA process, and briefly explain what you learned from each (why you found each informative).*   
+
+* * *
+### Distribution of Prices  
+
+The ultimate aim of this project is to deliver an accurate analysis of whether certain houses are overvalued or undervalued so that the real estate investment firm could make an informed choice. This means that the aspect of the data we are interested in is the **price**, since this will help us assess whether the asking price of a house is too high or too low.  
+  
+Thus, it is a good idea to look at the distribution of the variable price in the dataset. It will help us gain an understanding of the dynamics of the dataset as well as provide insight into whether linear regression is a suitable predictive method since it requires nearly normally distributed data to come up with valid predictions.  
+
+
+```{r histPrice}
+#Histogram of Prices
+ggplot(data = ames_train, aes(x = price)) + geom_histogram() + 
+  labs(title = "Histogram of Prices of the Houses", x = "Price", y = "Count") + 
+  geom_vline(aes(xintercept = mean(ames_train$price), colour = "red")) +
+  geom_vline(aes(xintercept = median(ames_train$price))) + 
+  geom_label(aes(x = mean(ames_train$price), y = 150, label = "Mean", color = "red"), size = 4, parse = T) +
+  geom_label(aes(x = median(ames_train$price), y = 170, label = "Median"), size = 4, parse = T) + 
+  theme(legend.position = "none")
+```
+  
+From the histogram, we can see that the prices are nearly normally distributed with a slight right skew. Let us also calculate some summary statistics to check if this is indeed the case.  
+  
+```{r summaryPrice}
+ames_train %>% summarise(Mean = mean(price), SD = sd(price), 
+                         Q1 = quantile(price, 0.25), Median = median(price), 
+                         Q3 = quantile(price, 0.75)) %>% kable() %>% kable_styling()
+```
+  
+From the summary statistics, we can see that the mean is indeed higher than the median which means that the price data is right-skewed. From the previous weeks of assessments, we know that abnormal sale conditions can often affect prices substantially. Let's filter out only the normal sale data and create a histogram to see if the distribution is similar.  
+
+```{r filter}
+ames_filtered <- ames_train %>% filter(Sale.Condition == "Normal")
+
+#Histogram of Prices of Normal Sale
+ggplot(data = ames_filtered, aes(x = price)) + geom_histogram() + 
+  labs(title = "Histogram of House Prices for Normal Sales", x = "Price", y = "Count") + 
+  geom_vline(aes(xintercept = mean(ames_filtered$price), colour = "red")) +
+  geom_vline(aes(xintercept = median(ames_filtered$price))) + 
+  geom_label(aes(x = mean(ames_filtered$price), y = 150, label = "Mean", color = "red"), size = 4, parse = T) +
+  geom_label(aes(x = median(ames_filtered$price), y = 170, label = "Median"), size = 4, parse = T) + 
+  theme(legend.position = "none")
+
+#Summary Statistics
+ames_filtered %>% summarise(Mean = mean(price), SD = sd(price), 
+                         Q1 = quantile(price, 0.25), Median = median(price), 
+                         Q3 = quantile(price, 0.75)) %>% kable() %>% kable_styling()
+```
+  
+The shape of the histogram looks similar to the unfiltered data - nearly normally distributed with a slight right skew. From the summary statistics, we can see that the variability of the Normal Sale data is lower since the Standard Deviation has gone down from 81909 for unfiltered data to 72269 for Normal sale prices. The mean, median and the third quartile have all decreased in values as well, implying that some of the removed not-normal sale data were on the higher end of prices. From now on, we will only use the filtered data for our modelling and analysis. 
+  
+### Location and Property Pricing  
+  
+In this section we will look at if and how the location of the house affects its valuation. For this purpose, We will use the variables Neighborhood (the neighborhood the property is located in) and Condition.1 (proximity of the house to various conditions).  
+
+```{r Neighborhood}
+# Boxplots of Housing Prices by Neighborhood
+ggplot(ames_filtered, aes(x = Neighborhood, y = price/1000, fill = Neighborhood)) + 
+  scale_fill_discrete(guide =FALSE) + geom_boxplot() +  labs(title = "Housing Prices by Neighborhood", 
+                                                             x = "Neighborhood", y = "Price in $1000s") +
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+```
+  
+From this plot, we can see that different neighborhoods indeed have different interquartile range brackets for prices. The prices of houses in NorthRidge Heights are widely variable whereas for NorthPark Villa, the prices are low and comparatively homogeneous. The different neighborhood areas also have different average prices - for instance, the entire price range of houses in Meadow Village is completely below the price range of houses in Green Hills with none to minimal overlaps. This suggests that neighborhoods would be a significant factor for prediction of prices.  
+  
+Let's look at how the proximity to various conditions affect the prices of property.  
+```{r Cond1}
+# Proximity to conditions
+ggplot(ames_filtered, aes(x = Condition.1, y = price/1000, fill = Condition.1)) + 
+  scale_fill_discrete(guide =FALSE) + geom_boxplot() + theme(axis.text.x = element_text(angle = 90,
+                                                                                        hjust =1)) + 
+  labs(title = "Housing Prices and Proximity to features ", x = "Condition", y = "Price in $1000s") 
+  
+```
+  
+We see that houses within 200' of the North-South Railroad (denoted by RRNn) are on average sold for higher prices than houses adjacent to the East West Railroad (denoted by RRAe). However, the difference in prices are not dramatically different for the Condition categories, i.e., there is significant overlap in the price ranges. These minor differences in prices may be due to proximity to these conditions but they can also just be a consequence of the location itself and may have nothing to do with these conditions.  
+  
+    
+### Year Built and Prices  
+  
+We could expect that new houses sell for higher prices since they are less likely to require refurbishments. We can now plot the log(price) of house against the age at which it was sold. We will also include the variable Overall.Cond (overall condition of house) in the plot since this is our theory for why newer houses may be priced higher.
+  
+```{r Age}
+# Age and Price
+ames_filtered <- ames_filtered %>% mutate(age = Yr.Sold - Year.Built)
+ggplot(ames_filtered, aes(x = age, y=log(price), col = Overall.Cond)) + geom_point() + 
+  labs(title="Age of House at Sale and Prices showing Overall Conditions of House", 
+       x="Age at Sale", y = "Log(Price of House)")
+```
+  
+As expected, we see that the plot shows a downward trend indicating that prices are indeed higher for the newly built houses. However, the overall condition of the houses do not seem to be better for newer houses since we see a lot of darker dots for ages 0 - 25 and quite a few lighter dots for ages more than 50. Let's plot Overall.Cond against Age at Sale to see if we are getting the trend right.  
+  
+```{r Cond}
+ggplot(ames_filtered, aes(x = age, y=Overall.Cond)) + geom_point() + 
+  labs(title="Age at Sale and Overall Conditions of House", x="Age of House during Sale",
+       y = "Overall Conditions of House")
+```
+  
+The above plot shows that the overall conditions don't necessarily increase for newer houses. In fact, for houses aged less than 20, the overall conditions were mostly rated at 5 and 6. Almost all the houses rated 8 and above for Overall Conditions are of age 30 and higher. This suggests that the higher prices of newer houses have little to do with their overall condition. Perhaps location could explain the discrepancy. For instance, the newer houses might be located at more prime locations than older houses.    
+  
+  
+From our EDA, we have learned some useful insights about our dataset. Let us now move on to the next step in our analysis
+
+  
+* * *
+
+## Part 2 - Development and assessment of an initial model, following a semi-guided process of analysis
+
+### Section 2.1 An Initial Model
+In building a model, it is often useful to start by creating a simple, intuitive initial model based on the results of the exploratory data analysis. (Note: The goal at this stage is **not** to identify the "best" possible model but rather to choose a reasonable and understandable starting point. Later you will expand and revise this model to create your final model.
+
+Based on your EDA, select *at most* 10 predictor variables from “ames_train” and create a linear model for `price` (or a transformed version of price) using those variables. Provide the *R code* and the *summary output table* for your model, a *brief justification* for the variables you have chosen, and a *brief discussion* of the model results in context (focused on the variables that appear to be important predictors and how they relate to sales price).
+
+* * *
+
+For our initial model, the following six variables are chosen. A brief explanation for each variable is given below as well.  
+  
+**1. Neighborhood**  
+From our EDA, we have seen that the prices of houses in different neighborhoods are vastly different with houses in some neighborhoods having no overlap in their price range with that of other neighborhoods. Furthermore, real estate industry expertise also suggests that real estate valuations have a lot to do with the location of the property. Due to these two reasons, this variable is included in our initial model.  
+  
+**2. Age at Sale - age**  
+Age at Sale (age) is defined as Yr.SOld - Year.Built. Our EDA has shown that the age of houses during sale has a relationship with the price of the houses. Hence we include this variable into our model.  
+  
+**3. First Floor Area and Second floor Area - X1st.Flr.SF, X2nd.Flr.SF**  
+The price of a house is expected to change with its size. One of the ways to measure the size of the house is to use the area of a floor in the house. Hence, we have included these two variables to denote how big the house is.  
+
+**4. Type of Dwelling - MS.SubClass**  
+This variable denotes the type of house such as 1 story or duplex etc. The same explanation as the previous two variables can be applied here as well. We will expect the price of a house to change with how big and how many levels it has. Thus this is a reasonable variable to include in our initial model.  
+  
+**5. Overall Quality of House - Overall.Qual**  
+In the EDA section, we discussed how the overall condition of the house could affect price but we did not explore the overall finish of the house. This variable is an indicator of the material and finish used in the entire house. Since houses built with cheaper materials can be assumed to be less sturdy and require frequent refurbishments, we can expect higher quality houses to be priced higher.  
+  
+Let us now fit our initial model using multiple linear regression and display the summary table.  
+
+```{r fit_model}
+model1 <- lm(price ~ Neighborhood + age + X1st.Flr.SF + X2nd.Flr.SF + MS.SubClass + Overall.Qual, data = ames_filtered)
+summary(model1)
+
+```
+  
+Note that the model has used Blmngtn as the reference level for variable Neighborhood and 020 as the reference level for Ms.SubClass. From the summary results, we can see that the adjusted R-squared for this model is quite high at 0.8716. As seen from the p-values, all of the variables picked seem to be highly significant as well. Age, 1st Floor area, 2nd floor area and overall quality all have p-values that are almost 0 and hence are statistically significant. The categorical variables are also significant as well with the neighborhood variable showing 5 levels with p-values statistically significant at 5% significance level and the MS.Subclass variable showing 6 levels with p-values statistically significant at 5% significance level. This suggests that we are on the right track in fitting variables to predict the prices. 
+
+
+* * *
+
+### Section 2.2 Model Selection
+
+**Now either using `BAS` another stepwise selection procedure choose the "best" model you can, using your initial model as your starting point. Try at least two different model selection methods and compare their results. Do they both arrive at the same model or do they disagree? What do you think this means?**
+
+* * *
+
+
+
+```{r model_select}
+```
+
+* * *
+
+### Section 2.3 Initial Model Residuals
+One way to assess the performance of a model is to examine the model's residuals. In the space below, create a residual plot for your preferred model from above and use it to assess whether your model appears to fit the data well. Comment on any interesting structure in the residual plot (trend, outliers, etc.) and briefly discuss potential implications it may have for your model and inference / prediction you might produce.
+
+* * *
+
+NOTE: Write your written response to section 2.3 here. Delete this note before you submit your work.
+
+```{r model_resid}
+```
+
+* * *
+
+### Section 2.4 Initial Model RMSE
+
+You can calculate it directly based on the model output. Be specific about the units of your RMSE (depending on whether you transformed your response variable). The value you report will be more meaningful if it is in the original units (dollars).
+
+* * *
+
+NOTE: Write your written response to section 2.4 here. Delete this note before you submit your work.
+
+
+```{r model_rmse}
+```
+
+* * *
+
+### Section 2.5 Overfitting 
+
+The process of building a model generally involves starting with an initial model (as you have done above), identifying its shortcomings, and adapting the model accordingly. This process may be repeated several times until the model fits the data reasonably well. However, the model may do well on training data but perform poorly out-of-sample (meaning, on a dataset other than the original training data) because the model is overly-tuned to specifically fit the training data. This is called “overfitting.” To determine whether overfitting is occurring on a model, compare the performance of a model on both in-sample and out-of-sample data sets. To look at performance of your initial model on out-of-sample data, you will use the data set `ames_test`.
+
+```{r loadtest, message = FALSE}
+load("ames_test.Rdata")
+```
+
+Use your model from above to generate predictions for the housing prices in the test data set.  Are the predictions significantly more accurate (compared to the actual sales prices) for the training data than the test data?  Why or why not? Briefly explain how you determined that (what steps or processes did you use)?
+
+* * *
+
+NOTE: Write your written response to section 2.5 here. Delete this note before you submit your work.
+
+```{r initmodel_test}
+```
+
+* * *
+
+**Note to the learner:** If in real-life practice this out-of-sample analysis shows evidence that the training data fits your model a lot better than the test data, it is probably a good idea to go back and revise the model (usually by simplifying the model) to reduce this overfitting. For simplicity, we do not ask you to do this on the assignment, however.
+
+## Part 3 Development of a Final Model
+
+Now that you have developed an initial model to use as a baseline, create a final model with *at most* 20 variables to predict housing prices in Ames, IA, selecting from the full array of variables in the dataset and using any of the tools that we introduced in this specialization.  
+
+Carefully document the process that you used to come up with your final model, so that you can answer the questions below.
+
+### Section 3.1 Final Model
+
+Provide the summary table for your model.
+
+* * *
+
+NOTE: Write your written response to section 3.1 here. Delete this note before you submit your work.
+
+
+```{r model_playground}
+```
+
+* * *
+
+### Section 3.2 Transformation
+
+Did you decide to transform any variables?  Why or why not? Explain in a few sentences.
+
+* * *
+
+NOTE: Write your written response to section 3.2 here. Delete this note before you submit your work.
+
+```{r model_assess}
+```
+
+* * *
+
+### Section 3.3 Variable Interaction
+
+Did you decide to include any variable interactions? Why or why not? Explain in a few sentences.
+
+* * *
+
+NOTE: Write your written response to section 3.3 here. Delete this note before you submit your work.
+
+```{r model_inter}
+```
+
+* * *
+
+### Section 3.4 Variable Selection
+
+What method did you use to select the variables you included? Why did you select the method you used? Explain in a few sentences.
+
+* * *
+
+NOTE: Write your written response to section 3.4 here. Delete this note before you submit your work.
+
+```{r model_select}
+```
+
+* * *
+
+### Section 3.5 Model Testing
+
+How did testing the model on out-of-sample data affect whether or how you changed your model? Explain in a few sentences.
+
+* * *
+
+NOTE: Write your written response to section 3.5 here. Delete this note before you submit your work.
+
+```{r model_testing}
+```
+
+* * *
+
+## Part 4 Final Model Assessment
+
+### Section 4.1 Final Model Residual
+
+For your final model, create and briefly interpret an informative plot of the residuals.
+
+* * *
+
+NOTE: Write your written response to section 4.1 here. Delete this note before you submit your work.
+
+* * *
+
+### Section 4.2 Final Model RMSE
+
+For your final model, calculate and briefly comment on the RMSE.
+
+* * *
+
+NOTE: Write your written response to section 4.2 here. Delete this note before you submit your work.
+
+* * *
+
+### Section 4.3 Final Model Evaluation
+
+What are some strengths and weaknesses of your model?
+
+* * *
+
+NOTE: Write your written response to section 4.3 here. Delete this note before you submit your work.
+
+* * *
+
+### Section 4.4 Final Model Validation
+
+Testing your final model on a separate, validation data set is a great way to determine how your model will perform in real-life practice. 
+
+You will use the “ames_validation” dataset to do some additional assessment of your final model. Discuss your findings, be sure to mention:
+* What is the RMSE of your final model when applied to the validation data?  
+* How does this value compare to that of the training data and/or testing data?
+* What percentage of the 95% predictive confidence (or credible) intervals contain the true price of the house in the validation data set?  
+* From this result, does your final model properly reflect uncertainty?
+
+```{r loadvalidation, message = FALSE}
+load("ames_validation.Rdata")
+```
+
+* * *
+
+NOTE: Write your written response to section 4.4 here. Delete this note before you submit your work.
+
+```{r model_validate}
+```
+
+* * *
+
+## Part 5 Conclusion
+
+Provide a brief summary of your results, and a brief discussion of what you have learned about the data and your model. 
+
+* * *
+
+NOTE: Write your written response to part 5 here. Delete this note before you submit your work.
+
+* * *
