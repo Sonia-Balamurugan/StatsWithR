@@ -1,0 +1,230 @@
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+#Load Packages
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(BAS)
+library(MASS)
+library(tidyverse)
+library(broom)
+```
+
+### Load data
+
+```{r load-data}
+#Load Data
+load("movies.Rdata")
+```
+
+
+
+* * *
+
+## Part 1: Data
+The movies dataset is made up of 651 randomly sampled movies produced and released before 2016 from Rotten Tomatoes and IMBD. Since **random sampling** was used to collect the data, the results can be generalised to movies produced and released between 1970 and 2016.  
+  
+However, only correlational statements and conclusions can be made as this is an **observational study** and the data collection involved **no random assignment** to perform an experiment. Hence, no causal relationships can be established from this dataset.  
+  
+The data in the dataset comes from Rotten Tomatoes and IMDB, both of which are sites that volunteers contribute to. It’s possible that only people with strong opinions about a movie and movie enthusiasts contribute to the two sites. Hence, the data itself might include convenience and response biases that makes the data different from that of the actual population.  
+
+
+* * *
+
+## Part 2: Data manipulation
+The specific modeling task for this project is to develop a Bayesian regression model to predict audience_score from a given list of explanatory variables - feature_film, drama, runtime, mpaa_rating_R, thtr_rel_year, oscar_season, summer_season, imdb_rating, imdb_num_votes, critics_score, best_pic_nom, best_pic_win, best_actor_win, best_actress_win, best_dir_win and top200_box.   
+   
+Of these variables, we are going to create the new variables required - feature_film, drama, mpaa_rating_R, oscar_season and summer_season using the mutate function. Then we will use the select function to add the other required variables into our new dataframe and get rid of the unimportant variables suchc as actor1-actor5 etc.  
+
+```{r new-vars}
+#Create new variables and extract re unimportant variables
+moviedata <- movies %>% mutate(
+  feature_film = ifelse(title_type == "Feature Film", "yes", "no"),
+  drama = ifelse(genre == "Drama", "yes", "no"),
+  mpaa_rating_R = ifelse(mpaa_rating == "R", "yes", "no"),
+  oscar_season = ifelse(thtr_rel_month %in% c(10, 11, 12), "yes", "no"),
+  summer_season = ifelse(thtr_rel_month %in% c(5, 6, 7, 8),"yes", "no")) %>% 
+  dplyr::select(audience_score, feature_film, drama, runtime,  mpaa_rating_R, thtr_rel_year, oscar_season, summer_season, imdb_rating, imdb_num_votes, critics_score, best_pic_nom, best_pic_win, best_actor_win, best_actress_win, best_dir_win, top200_box)
+
+moviedata$feature_film <- as.factor(moviedata$feature_film)
+moviedata$drama <- as.factor(moviedata$drama)
+moviedata$mpaa_rating_R <- as.factor(moviedata$mpaa_rating_R)
+moviedata$oscar_season <- as.factor(moviedata$oscar_season)
+moviedata$summer_season <- as.factor(moviedata$summer_season)
+
+str(moviedata)
+```
+
+
+* * *
+
+## Part 3: Exploratory data analysis
+Let’s now look at a summary of the data.  
+
+```{r}
+#Summary of the data
+summary(moviedata)
+```
+
+Looking through the data, we see that the runtime has 1 NA value. We'll get rid of this observation since Bayesian regression makes use of the complete data.  
+
+```{r no-na}
+#Get rid of the observations with NA
+moviedata <- moviedata %>% na.omit()
+```
+  
+We are ultimately interested in predicting the audience reception of a movie. Hence our response variable would be audience_score. Let’s look at a histogram of this variable to get a sense of the distribution shape.  
+
+```{r histogram}
+#Histogram of Rotten Tomatoes Audience Scores
+ggplot(moviedata, aes(x = audience_score)) + geom_histogram(binwidth = 2) + 
+  labs(title ="Histogram of Rotten Tomatoes Scores" ,x = "Audience Score")
+```
+  
+The plot shows left skewness, with the bulk of the responses in the right section of the plot.  
+  
+Let us now look at the boxplots of audience_score for different categories of the newly created variables.
+  
+```{r boxplots}
+#Feature film Vs Audience Score
+ggplot(moviedata, aes(x = feature_film, y=audience_score, fill=feature_film))+ geom_boxplot()
+#Drama Vs Audience Score
+ggplot(moviedata, aes(x = drama, y=audience_score, fill=drama))+ geom_boxplot()
+#R Rating Vs Audience Score
+ggplot(moviedata, aes(x = mpaa_rating_R, y=audience_score, fill=mpaa_rating_R))+ geom_boxplot()
+#Released in Oscar Season Vs Audience Score
+ggplot(moviedata, aes(x = oscar_season, y=audience_score, fill=oscar_season))+ geom_boxplot()
+#Released in Summer Vs Audience Score
+ggplot(moviedata, aes(x = summer_season, y=audience_score, fill=summer_season))+ geom_boxplot()
+```
+  
+The boxplots are quite different for different levels of some variables. For instance, almost the entire plot of audience_score of feature films is lower than the plot for other genres, implying that this variable could potentially be a significant predictor. On the other hand, the plots do not show much difference in audience_scores for the variables summer_season, oscar_season and mpaa_rating_R.
+
+
+* * *
+
+## Part 4: Modeling
+In this section, we will be building a multiple linear regression model with audience_score as the response variable. The full model for audience score will include the variables feature_film, drama, runtime, mpaa_rating_R, thtr_rel_year, oscar_season, summer_season, imdb_rating, imdb_num_votes, critics_score, best_pic_nom, best_pic_win, best_actor_win, best_actress_win, best_dir_win and top200_box.  
+  
+### Model Fit
+We will use Bayesian Model Averaging (BMA) to find the best model as it allows us to average multiple models to find the appropriate coefficients and predictions from new data. We will use BIC as prior with uniform distributions for the modelpriors.  
+  
+```{r model}
+#Fit Model
+modelbma <- bas.lm(audience_score ~ ., data = moviedata, prior = "BIC", modelprior = uniform())
+modelbma
+```
+  
+The output above shows the posterior inclusion probabilities of the explanatory variables. We see that imdb_rating has the highest posterior probability of being included in the model, followed by critics_score and runtime. We'll now look at a summary of the BMA process. 
+
+```{r summary-bma}
+summary(modelbma)
+```
+  
+The above summary shows the most probable models. Model 1 consisting of run_time, imdb_rating and critics_score along with the Intercept is the most likely model with a posterior probability of 0.1297. Although this number doesn't seem so high, it is significantly higher than the prior probability of 0.5^16 assigned to it. Model 2 closesly follows behind with a posterior probability of 0.1293 and includes the variables imdb_rating and critics_score along with the intercept.  
+
+### Model Coefficients  
+Let us first retrieve and plot the posterior distributions for the coefficients of predictors in the model.  
+
+```{r coeff}
+coeff_mod <- coefficients(modelbma)
+coeff_mod$namesx
+plot(coeff_mod, subset = c(4,8,11), ask=FALSE)
+```
+
+The plots show the posterior distribution of the coefficients of predictors which are included in model 1 under Bayesian Model Averaging. Let us now construct 95% credible intervals for these coefficients. 
+
+```{r coeff-int}
+confint(coeff_mod)
+```
+  
+The coefficients represent the linear relationship of the predictor to the audience_score when all else is constant. A positive coefficient implies that when the predictor increases, the audience_score will also increase. A negative coefficient implies an inverse relationship - an increase in predictor will be accompanied by decrease in audience_score. The absolute value of the coefficient represents the strength of the relationship. For instance, the 95% credible interval for the coefficient of run_time is (-8.35, 0). This implies a negative relationship, meaning all else held constant, for every minute's decrease in runtime, there is a 95% chance of the audience_score increasing between 0 and 8.35 percentage points on average.
+
+
+### Model Diagnostics
+We will now create some diagnostic plots.  
+
+**Constant Variability of Residuals**
+```{r diagnostic-1}
+#Residuals Vs Fitted
+plot(modelbma, which = 1, add.smooth = F)
+```
+
+The graph shows the residuals plotted against predicted or fitted values. We see that although the plot shows mostly random scatter, there does seem to be some relationship between fitted and residual values. The residuals are less scattered for higher predicted values (>70) and more scattered for predictions less than 40. This suggests that the model is less accurate when the predictions are less than 40.  
+  
+**Cumulative Probability of Models**
+```{r diagnostic-2}
+#Cumulative Probability vs Model Search Order
+plot(modelbma, which = 2, add.smooth = T)
+```
+The plot of cumulative probability and model search order looks mostly linear with 2 jumps in between. This implies that each model has something small to add to the model fit.   
+
+
+**Model Complexity and Probability**
+```{r diagnostic-3}
+#Log(Marginal Probabilities) for diff Model Dimensions
+plot(modelbma, which = 3)
+```
+This plot shows the marginal posterior probabilities of models with different dimensions. We see that those with the highest probabilities are those with 5 or less predictors. Our most likely model from earlier fits this description as it only has 3 predictors.  
+  
+
+**Marginal Inclusion Probabilities**
+```{r diagnostic-4}
+#Marginal Inclusion Probabilities of predictors
+plot(modelbma, which = 4, sub="")
+``` 
+  
+This plot shows the marginal inclusion probabilities of the different predictors. imdb_rating, critics_Score and runtime have the highest inclusion probabilities and hence are included in our most likely model.  
+  
+  
+**Predictors included in different models**
+```{r diagnostic-5}
+#Model Rank and predictors
+image(modelbma)
+```
+  
+The image above shows the predictors included in the top 20 models and the odds of these models. The red spaces show highly likely (and highly ranked) models, with the purple spaces showing less likely models. The black spaces show that the predictors not included in each model. We see that imdb_rating and critics_score are included in all top models with the highest ranks. 
+
+
+* * *
+
+## Part 5: Prediction  
+We are now ready to predict the audience score for a movie that is not included in our dataset. The movie to be predicted is “The Little Prince”, released in August 2016. We have extracted the required data from [Rotten Tomatoes](https://www.rottentomatoes.com/m/the_little_prince_2016) and [IMDB](https://www.imdb.com/title/tt1754656/?ref_=nv_sr_1?ref_=nv_sr_1). We’ll now predict a 95% prediction interval with our model. This means that if repeated samples were taken, then 95% of the samples that contain the true parameter would be between our 95% prediction interval.  
+  
+```{r}
+predict_movie <- data.frame(feature_film = "no", drama = "yes",runtime = 106, 
+                            mpaa_rating_R = "no", thtr_rel_year = 2016,
+                            oscar_season = "no", summer_season = "yes", imdb_rating = 7.7, 
+                            imdb_num_votes = 51012, critics_score = 93, 
+                            best_pic_nom = "no", best_pic_win = "no",
+                            best_actor_win = "no", best_actress_win = "no", 
+                            best_dir_win = "no", top200_box = "no")
+
+#Best Predictive Model Prediction
+BPM_pred <- predict(modelbma, predict_movie, estimator = "BPM", se.fit=TRUE)
+confint(BPM_pred)
+
+#Highest Probability Model Prediction
+HPM_pred <- predict(modelbma, predict_movie, estimator = "HPM", se.fit=TRUE)
+confint(HPM_pred)
+
+#Median Probability Model Prediction
+MPM_pred <- predict(modelbma, predict_movie, estimator = "MPM", se.fit=TRUE)
+confint(MPM_pred)
+```
+
+The 95% prediction interval based on the best predictive model is (63.19, 102.80) with the mean value 83%. The actual rating that “The Little Prince” received on Rotten Tomatoes was 84%. Hence, our prediction based on the Best Predictive Model (BPM) seems to be working alright.  
+  
+The predictions based on the Highest Probability Model: 95% interval (63.17, 102.68) with mean 82.92% and predictions from Median Probability Model: 95% interval (62.82, 102.50) with mean 82.66% are also not that far off from the actual audience_score of 84%.  
+
+
+
+* * *
+
+## Part 6: Conclusion
+We have now built a multiple linear regression model that predicts the audience scores on Rotten Tomatoes using a few factors such as runtime, critics score and imdb ratings. Using Bayesian model average many models can be constructed to perform better predictions. The proposed linear model shows quite an accurate prediction rate.  
+  
+It may be useful to create the initial priors with the opinion of an expert movie critic instead of the reference priors used here and thus create a better Bayesian prediction model. It is also seen that not all of the factors included in the model are intrinsic to the movie but some are extrinsic as well. This is a limitation because we won’t be able to predict the audience scores with this model before the movie comes out since we won’t know IMDB ratings and critics scores until after the movie is released. So although it’s pretty accurate, it might not be as accurate if the extrinsic variables were dropped from the model.
